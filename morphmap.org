@@ -1,3 +1,5 @@
+#+TITLE: Emacs
+#+STARTUP: content
 #+PROPERTY: header-args :session morphmap
 We will get the cosine similarity of genes starting with =CDK= and =PPARG= using pure duckdb.
 
