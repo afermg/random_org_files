@@ -1,0 +1,144 @@
+#+PROPERTY: header-args :session morphmap
+We will get the cosine similarity of genes starting with =CDK= and =PPARG= using pure duckdb.
+
+Get the ids
+#+begin_src duckdb 
+  CREATE OR REPLACE TABLE jcp_symbol AS (SELECT Metadata_JCP2022,Metadata_Symbol FROM read_csv(['https://github.com/jump-cellpainting/datasets/raw/99c34b66f51c5971c85417c02e191f43057c22a8/metadata/crispr.csv.gz', 'https://github.com/jump-cellpainting/datasets/raw/99c34b66f51c5971c85417c02e191f43057c22a8/metadata/orf.csv.gz']) WHERE starts_with(Metadata_Symbol, 'CDK') OR starts_with(Metadata_Symbol, 'PPARG'));
+  SELECT * FROM jcp_symbol LIMIT 2;
+  SELECT COUNT(*) AS nrows FROM jcp_symbol;
+#+end_src
+
+#+RESULTS:
+#+begin_results
+┌──────────────────┬─────────────────┐
+│ Metadata_JCP2022 │ Metadata_Symbol │
+│     varchar      │     varchar     │
+├──────────────────┼─────────────────┤
+│ JCP2022_801192   │ CDK1            │
+│ JCP2022_801193   │ CDK10           │
+└──────────────────┴─────────────────┘
+┌───────┐
+│ nrows │
+│ int64 │
+├───────┤
+│  102  │
+└───────┘
+#+end_results
+
+#+begin_src duckdb
+  CREATE TABLE IF NOT EXISTS subset_features AS (SELECT * FROM jcp_symbol NATURAL JOIN (SELECT * FROM  read_parquet('https://cellpainting-gallery.s3.amazonaws.com/cpg0016-jump-assembled/source_all/workspace/profiles_assembled/ALL/v1.0b/profiles_wellpos_cc_var_mad_outlier_featselect_sphering_harmony.parquet')));
+  SELECT * FROM subset_features LIMIT 2;
+  SELECT COUNT(*) AS nrows FROM subset_features; -- nrows
+#+end_src
+
+#+RESULTS:
+#+begin_results
+┌──────────────────┬─────────────────┬─────────────────┬────────────────┬───────────────┬───┬─────────────┬─────────────┬──────────────┬─────────────┬──────────────┬─────────────┐
+│ Metadata_JCP2022 │ Metadata_Symbol │ Metadata_Source │ Metadata_Plate │ Metadata_Well │ … │    X_609    │    X_610    │    X_611     │    X_612    │    X_613     │    X_614    │
+│     varchar      │     varchar     │     varchar     │    varchar     │    varchar    │   │    float    │    float    │    float     │    float    │    float     │    float    │
+├──────────────────┼─────────────────┼─────────────────┼────────────────┼───────────────┼───┼─────────────┼─────────────┼──────────────┼─────────────┼──────────────┼─────────────┤
+│ JCP2022_909999   │ CDKN2A          │ source_4        │ BR00117035     │ C11           │ … │  0.06202205 │  -0.0823967 │  0.006800174 │ 0.051866554 │  0.039663002 │  0.12716372 │
+│ JCP2022_900258   │ CDK8            │ source_4        │ BR00117035     │ M07           │ … │ -0.17435153 │ 0.060845245 │ -0.119379975 │ -0.11491676 │ -0.027610542 │ -0.02671002 │
+├──────────────────┴─────────────────┴─────────────────┴────────────────┴───────────────┴───┴─────────────┴─────────────┴──────────────┴─────────────┴──────────────┴─────────────┤
+│ 2 rows                                                                                                                                                   619 columns (11 shown) │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌───────┐
+│ nrows │
+│ int64 │
+├───────┤
+│  525  │
+└───────┘
+#+end_results
+
+#+begin_src duckdb
+  CREATE OR REPLACE TABLE consensus AS (SELECT Metadata_Symbol,MEAN(COLUMNS('X_*')) FROM subset_features GROUP BY Metadata_Symbol);
+  SELECT * FROM consensus LIMIT 2;
+  SELECT COUNT(*) AS nrows FROM consensus;
+#+end_src
+
+#+RESULTS:
+#+begin_results
+┌─────────────────┬──────────────────────┬──────────────────────┬───┬──────────────────────┬──────────────────────┬──────────────────────┬──────────────────────┐
+│ Metadata_Symbol │         X_1          │         X_2          │ … │        X_611         │        X_612         │        X_613         │        X_614         │
+│     varchar     │        double        │        double        │   │        double        │        double        │        double        │        double        │
+├─────────────────┼──────────────────────┼──────────────────────┼───┼──────────────────────┼──────────────────────┼──────────────────────┼──────────────────────┤
+│ CDK9            │  -0.026000014071663… │ -0.07740316254397234 │ … │  0.09197003779311975 │  0.08836161424405872 │  0.06061174205193917 │ 0.019683727870384853 │
+│ CDK4            │  -0.023619882483035… │ -0.04388141926998893 │ … │  -0.018369259987957… │ 0.002401378789606194 │ 0.006053054953614871 │  0.03429628300170104 │
+├─────────────────┴──────────────────────┴──────────────────────┴───┴──────────────────────┴──────────────────────┴──────────────────────┴──────────────────────┤
+│ 2 rows                                                                                                                                  615 columns (7 shown) │
+└───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌───────┐
+│ nrows │
+│ int64 │
+├───────┤
+│  43   │
+└───────┘
+#+end_results
+
+Transpose the table, because duckdb performs much better aggregating columns.
+#+begin_src duckdb
+  CREATE OR REPLACE TABLE transposed AS PIVOT(UNPIVOT consensus ON COLUMNS('X_*')) ON Metadata_Symbol USING first(value);
+  SELECT * FROM transposed LIMIT 2;
+  SELECT COUNT(*) AS nrows FROM transposed;
+#+end_src
+
+#+RESULTS:
+#+begin_results
+┌─────────┬──────────────────────┬─────────────────────┬──────────────────────┬───┬─────────────────────┬─────────────────────┬──────────────────────┬─────────────────────┐
+│  name   │         CDK1         │        CDK10        │        CDK11A        │ … │        CDKN3        │        PPARG        │       PPARGC1A       │      PPARGC1B       │
+│ varchar │        double        │       double        │        double        │   │       double        │       double        │        double        │       double        │
+├─────────┼──────────────────────┼─────────────────────┼──────────────────────┼───┼─────────────────────┼─────────────────────┼──────────────────────┼─────────────────────┤
+│ X_156   │ -0.17407462850484687 │ 0.01503432218451053 │ 0.034246454015374184 │ … │ 0.11615131637081504 │ 0.10329039447630445 │  0.16620973199605943 │ 0.18543504821136594 │
+│ X_300   │   0.0935630311879019 │ 0.03993362531764433 │ 0.028892146167345346 │ … │ 0.04078265465795994 │   0.073098751809448 │ -0.04385018274188042 │ 0.09168060794472695 │
+├─────────┴──────────────────────┴─────────────────────┴──────────────────────┴───┴─────────────────────┴─────────────────────┴──────────────────────┴─────────────────────┤
+│ 2 rows                                                                                                                                              44 columns (8 shown) │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌───────┐
+│ nrows │
+│ int64 │
+├───────┤
+│  614  │
+└───────┘
+#+end_results
+
+Create vector arrays to calculate distance between them (they ought to be on the same column)
+#+begin_src duckdb
+  CREATE OR REPLACE TABLE lists AS UNPIVOT (SELECT LIST(COLUMNS(* EXCLUDE('name'))) FROM transposed) ON *;
+  CREATE OR REPLACE TABLE vec AS (SELECT name,value::Float[614] AS vec FROM lists);
+  SELECT * FROM vec LIMIT 2
+#+end_src
+
+#+RESULTS:
+#+begin_results
+┌─────────┬────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│  name   │                                                                                  vec                                                                                   │
+│ varchar │                                                                               float[614]                                                                               │
+├─────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ CDK1    │ [-0.17407463, 0.09356303, -0.16698487, -0.47541437, -0.13420011, 0.27215907, -0.054577425, 0.099565856, 0.076311804, -0.044818204, 0.010731653, -0.13824134, 0.02189…  │
+│ CDK10   │ [0.015034323, 0.039933626, -0.017038388, 0.002151463, 0.03128465, -0.05201976, -0.04753162, 0.03311472, 0.15122187, 0.13490616, 0.07345616, 0.020085413, -0.00684847…  │
+└─────────┴────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+#+end_results
+
+Based on [[https://motherduck.com/blog/search-using-duckdb-part-1/][this]] example of vector search, we calculate the cross JOIN
+#+begin_src duckdb
+  CREATE OR REPLACE TABLE cosim AS (SELECT x.name as gene_1,
+         y.name as gene_2,
+         array_cosine_similarity(x.vec, y.vec) AS similarity_metric
+  FROM vec AS x
+  CROSS JOIN vec AS y);
+  SELECT * FROM cosim LIMIT 5;
+#+end_src
+
+#+RESULTS:
+#+begin_results
+┌─────────┬─────────┬───────────────────┐
+│ gene_1  │ gene_2  │ similarity_metric │
+│ varchar │ varchar │       float       │
+├─────────┼─────────┼───────────────────┤
+│ CDK1    │ CDK1    │               1.0 │
+│ CDK10   │ CDK1    │        0.14098114 │
+│ CDK11A  │ CDK1    │        0.21304414 │
+│ CDK11B  │ CDK1    │          0.271454 │
+│ CDK12   │ CDK1    │      -0.084055744 │
+└─────────┴─────────┴───────────────────┘
+#+end_results
