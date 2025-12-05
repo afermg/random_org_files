@@ -1,146 +1,205 @@
-#+TITLE: Emacs
-#+STARTUP: content
-#+PROPERTY: header-args :session morphmap
-We will get the cosine similarity of genes starting with =CDK= and =PPARG= using pure duckdb.
+#+PROPERTY: header-args :session morphmap :wrap example :results raw
+
+* Cosine similarity from selected embeddings using duckdb
+Often I want to look at the relationship of subgroups in a large datasets. In this case, I  will get the cosine similarity of genes starting with =CDK= and =PPARG= using only duckdb.
 
 Get the ids
-#+begin_src duckdb 
-  CREATE OR REPLACE TABLE jcp_symbol AS (SELECT Metadata_JCP2022,Metadata_Symbol FROM read_csv(['https://github.com/jump-cellpainting/datasets/raw/99c34b66f51c5971c85417c02e191f43057c22a8/metadata/crispr.csv.gz', 'https://github.com/jump-cellpainting/datasets/raw/99c34b66f51c5971c85417c02e191f43057c22a8/metadata/orf.csv.gz']) WHERE starts_with(Metadata_Symbol, 'CDK') OR starts_with(Metadata_Symbol, 'PPARG'));
-  SELECT * FROM jcp_symbol LIMIT 2;
-  SELECT COUNT(*) AS nrows FROM jcp_symbol;
+#+begin_src duckdb
+  .maxrows 3
+  .maxwidth 89
+  INSTALL httpfs;
+  LOAD httpfs;
+  CREATE OR REPLACE TABLE jcp_symbol AS (SELECT Metadata_JCP2022,Metadata_Symbol,split_part(split_part(filename,'/',-1),'.',1) AS dset FROM read_csv(['https://github.com/jump-cellpainting/datasets/raw/99c34b66f51c5971c85417c02e191f43057c22a8/metadata/crispr.csv.gz', 'https://github.com/jump-cellpainting/datasets/raw/99c34b66f51c5971c85417c02e191f43057c22a8/metadata/orf.csv.gz'], filename=True) WHERE Metadata_Symbol SIMILAR TO  '^CDK[0-9]+$' OR starts_with(Metadata_Symbol, 'PPARG'));
+  FROM jcp_symbol;
 #+end_src
 
 #+RESULTS:
-#+begin_results
-┌──────────────────┬─────────────────┐
-│ Metadata_JCP2022 │ Metadata_Symbol │
-│     varchar      │     varchar     │
-├──────────────────┼─────────────────┤
-│ JCP2022_801192   │ CDK1            │
-│ JCP2022_801193   │ CDK10           │
-└──────────────────┴─────────────────┘
-┌───────┐
-│ nrows │
-│ int64 │
-├───────┤
-│  102  │
-└───────┘
-#+end_results
+#+begin_example
+┌──────────────────┬─────────────────┬─────────┐
+│ Metadata_JCP2022 │ Metadata_Symbol │  dset   │
+│     varchar      │     varchar     │ varchar │
+├──────────────────┼─────────────────┼─────────┤
+│ JCP2022_801192   │ CDK1            │ crispr  │
+│ JCP2022_801193   │ CDK10           │ crispr  │
+│       ·          │   ·             │  ·      │
+│       ·          │   ·             │  ·      │
+│       ·          │   ·             │  ·      │
+│ JCP2022_914631   │ CDK10           │ orf     │
+├──────────────────┴─────────────────┴─────────┤
+│ 61 rows (3 shown)                  3 columns │
+└──────────────────────────────────────────────┘
+#+end_example
 
 #+begin_src duckdb
-  CREATE TABLE IF NOT EXISTS subset_features AS (SELECT * FROM jcp_symbol NATURAL JOIN (SELECT * FROM  read_parquet('https://cellpainting-gallery.s3.amazonaws.com/cpg0016-jump-assembled/source_all/workspace/profiles_assembled/ALL/v1.0b/profiles_wellpos_cc_var_mad_outlier_featselect_sphering_harmony.parquet')));
-  SELECT * FROM subset_features LIMIT 2;
-  SELECT COUNT(*) AS nrows FROM subset_features; -- nrows
+  CREATE OR REPLACE TABLE subset_features AS (SELECT * FROM jcp_symbol NATURAL JOIN (SELECT * FROM  read_parquet('https://cellpainting-gallery.s3.amazonaws.com/cpg0016-jump-assembled/source_all/workspace/profiles_assembled/ALL/v1.0b/profiles_wellpos_cc_var_mad_outlier_featselect_sphering_harmony.parquet')));
+  FROM subset_features;
 #+end_src
 
 #+RESULTS:
-#+begin_results
-┌──────────────────┬─────────────────┬─────────────────┬────────────────┬───────────────┬───┬─────────────┬─────────────┬──────────────┬─────────────┬──────────────┬─────────────┐
-│ Metadata_JCP2022 │ Metadata_Symbol │ Metadata_Source │ Metadata_Plate │ Metadata_Well │ … │    X_609    │    X_610    │    X_611     │    X_612    │    X_613     │    X_614    │
-│     varchar      │     varchar     │     varchar     │    varchar     │    varchar    │   │    float    │    float    │    float     │    float    │    float     │    float    │
-├──────────────────┼─────────────────┼─────────────────┼────────────────┼───────────────┼───┼─────────────┼─────────────┼──────────────┼─────────────┼──────────────┼─────────────┤
-│ JCP2022_909999   │ CDKN2A          │ source_4        │ BR00117035     │ C11           │ … │  0.06202205 │  -0.0823967 │  0.006800174 │ 0.051866554 │  0.039663002 │  0.12716372 │
-│ JCP2022_900258   │ CDK8            │ source_4        │ BR00117035     │ M07           │ … │ -0.17435153 │ 0.060845245 │ -0.119379975 │ -0.11491676 │ -0.027610542 │ -0.02671002 │
-├──────────────────┴─────────────────┴─────────────────┴────────────────┴───────────────┴───┴─────────────┴─────────────┴──────────────┴─────────────┴──────────────┴─────────────┤
-│ 2 rows                                                                                                                                                   619 columns (11 shown) │
-└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌───────┐
-│ nrows │
-│ int64 │
-├───────┤
-│  525  │
-└───────┘
-#+end_results
+#+begin_example
+┌──────────────────┬─────────────────┬─────────┬───┬──────────────┬──────────────┐
+│ Metadata_JCP2022 │ Metadata_Symbol │  dset   │ … │    X_613     │    X_614     │
+│     varchar      │     varchar     │ varchar │   │    float     │    float     │
+├──────────────────┼─────────────────┼─────────┼───┼──────────────┼──────────────┤
+│ JCP2022_900258   │ CDK8            │ orf     │ … │ -0.027610542 │  -0.02671002 │
+│ JCP2022_900257   │ CDK7            │ orf     │ … │ -0.046489038 │ -0.016149215 │
+│       ·          │  ·              │  ·      │ · │       ·      │       ·      │
+│       ·          │  ·              │  ·      │ · │       ·      │       ·      │
+│       ·          │  ·              │  ·      │ · │       ·      │       ·      │
+│ JCP2022_805396   │ PPARG           │ crispr  │ … │  0.031002134 │ -0.026361786 │
+├──────────────────┴─────────────────┴─────────┴───┴──────────────┴──────────────┤
+│ 320 rows (3 shown)                                       620 columns (5 shown) │
+└────────────────────────────────────────────────────────────────────────────────┘
+#+end_example
 
+Obtain consensus profiles (Profiles for a single gene symbol, aggregated over all wells).
 #+begin_src duckdb
-  CREATE OR REPLACE TABLE consensus AS (SELECT Metadata_Symbol,MEAN(COLUMNS('X_*')) FROM subset_features GROUP BY Metadata_Symbol);
-  SELECT * FROM consensus LIMIT 2;
-  SELECT COUNT(*) AS nrows FROM consensus;
+  CREATE OR REPLACE TABLE consensus AS (SELECT dset,Metadata_Symbol,MEAN(COLUMNS('X_*')) FROM subset_features GROUP BY Metadata_Symbol,dset);
+  SELECT * FROM consensus;
+
+  SELECT dset,COUNT(*) AS n_genes FROM consensus GROUP BY dset;
+  SELECT Metadata_Symbol[:3] AS family,COUNT(*) AS n_genes FROM consensus GROUP BY Metadata_Symbol[:3];
 #+end_src
 
 #+RESULTS:
-#+begin_results
-┌─────────────────┬──────────────────────┬──────────────────────┬───┬──────────────────────┬──────────────────────┬──────────────────────┬──────────────────────┐
-│ Metadata_Symbol │         X_1          │         X_2          │ … │        X_611         │        X_612         │        X_613         │        X_614         │
-│     varchar     │        double        │        double        │   │        double        │        double        │        double        │        double        │
-├─────────────────┼──────────────────────┼──────────────────────┼───┼──────────────────────┼──────────────────────┼──────────────────────┼──────────────────────┤
-│ CDK9            │  -0.026000014071663… │ -0.07740316254397234 │ … │  0.09197003779311975 │  0.08836161424405872 │  0.06061174205193917 │ 0.019683727870384853 │
-│ CDK4            │  -0.023619882483035… │ -0.04388141926998893 │ … │  -0.018369259987957… │ 0.002401378789606194 │ 0.006053054953614871 │  0.03429628300170104 │
-├─────────────────┴──────────────────────┴──────────────────────┴───┴──────────────────────┴──────────────────────┴──────────────────────┴──────────────────────┤
-│ 2 rows                                                                                                                                  615 columns (7 shown) │
-└───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌───────┐
-│ nrows │
-│ int64 │
-├───────┤
-│  43   │
-└───────┘
-#+end_results
+#+begin_example
+┌─────────┬─────────────────┬───┬──────────────────────┬──────────────────────┐
+│  dset   │ Metadata_Symbol │ … │        X_613         │        X_614         │
+│ varchar │     varchar     │   │        double        │        double        │
+├─────────┼─────────────────┼───┼──────────────────────┼──────────────────────┤
+│ orf     │ CDK5            │ … │  -0.038130767596885… │  0.01563085364177823 │
+│ crispr  │ CDK5            │ … │  0.02112762969918549 │ 0.018759860843420028 │
+│   ·     │  ·              │ · │           ·          │           ·          │
+│   ·     │  ·              │ · │           ·          │           ·          │
+│   ·     │  ·              │ · │           ·          │           ·          │
+│ crispr  │ CDK4            │ … │  0.05896517559885979 │ 0.024498921260237692 │
+├─────────┴─────────────────┴───┴──────────────────────┴──────────────────────┤
+│ 42 rows (3 shown)                                     616 columns (4 shown) │
+└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────┬─────────┐
+│  dset   │ n_genes │
+│ varchar │  int64  │
+├─────────┼─────────┤
+│ orf     │      20 │
+│ crispr  │      22 │
+└─────────┴─────────┘
+┌─────────┬─────────┐
+│ family  │ n_genes │
+│ varchar │  int64  │
+├─────────┼─────────┤
+│ PPA     │       5 │
+│ CDK     │      37 │
+└─────────┴─────────┘
+#+end_example
 
 Transpose the table, because duckdb performs much better aggregating columns.
 #+begin_src duckdb
-  CREATE OR REPLACE TABLE transposed AS PIVOT(UNPIVOT consensus ON COLUMNS('X_*')) ON Metadata_Symbol USING first(value);
-  SELECT * FROM transposed LIMIT 2;
-  SELECT COUNT(*) AS nrows FROM transposed;
+  .maxrows 3
+  .maxwidth 89
+  CREATE OR REPLACE TABLE transposed AS PIVOT (UNPIVOT consensus ON COLUMNS('X_*')) ON Metadata_Symbol,dset USING first(value);
+  FROM transposed
 #+end_src
 
 #+RESULTS:
-#+begin_results
-┌─────────┬──────────────────────┬─────────────────────┬──────────────────────┬───┬─────────────────────┬─────────────────────┬──────────────────────┬─────────────────────┐
-│  name   │         CDK1         │        CDK10        │        CDK11A        │ … │        CDKN3        │        PPARG        │       PPARGC1A       │      PPARGC1B       │
-│ varchar │        double        │       double        │        double        │   │       double        │       double        │        double        │       double        │
-├─────────┼──────────────────────┼─────────────────────┼──────────────────────┼───┼─────────────────────┼─────────────────────┼──────────────────────┼─────────────────────┤
-│ X_156   │ -0.17407462850484687 │ 0.01503432218451053 │ 0.034246454015374184 │ … │ 0.11615131637081504 │ 0.10329039447630445 │  0.16620973199605943 │ 0.18543504821136594 │
-│ X_300   │   0.0935630311879019 │ 0.03993362531764433 │ 0.028892146167345346 │ … │ 0.04078265465795994 │   0.073098751809448 │ -0.04385018274188042 │ 0.09168060794472695 │
-├─────────┴──────────────────────┴─────────────────────┴──────────────────────┴───┴─────────────────────┴─────────────────────┴──────────────────────┴─────────────────────┤
-│ 2 rows                                                                                                                                              44 columns (8 shown) │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌───────┐
-│ nrows │
-│ int64 │
-├───────┤
-│  614  │
-└───────┘
-#+end_results
+#+begin_example
+┌─────────┬─────────────────────┬───┬──────────────────────┬──────────────────────┐
+│  name   │     CDK1_crispr     │ … │   PPARGC1B_crispr    │     PPARGC1B_orf     │
+│ varchar │       double        │   │        double        │        double        │
+├─────────┼─────────────────────┼───┼──────────────────────┼──────────────────────┤
+│ X_362   │  0.1835808888077736 │ … │ 0.055841363966464996 │ 0.034938738122582434 │
+│ X_596   │ -0.2522718102671206 │ … │ -0.15096750287339092 │ 0.009827617183327675 │
+│   ·     │           ·         │ · │           ·          │            ·         │
+│   ·     │           ·         │ · │           ·          │            ·         │
+│   ·     │           ·         │ · │           ·          │            ·         │
+│ X_541   │  -0.226612189412117 │ … │  -0.018917539902031… │   -0.135555587336421 │
+├─────────┴─────────────────────┴───┴──────────────────────┴──────────────────────┤
+│ 614 rows (3 shown)                                         45 columns (4 shown) │
+└─────────────────────────────────────────────────────────────────────────────────┘
+#+end_example
 
-Create vector arrays to calculate distance between them (they ought to be on the same column)
+  Create vector arrays to calculate distance between them (they ought to be on the same column). Remove empty vectors.
 #+begin_src duckdb
-  CREATE OR REPLACE TABLE lists AS UNPIVOT (SELECT LIST(COLUMNS(* EXCLUDE('name'))) FROM transposed) ON *;
-  CREATE OR REPLACE TABLE vec AS (SELECT name,value::Float[614] AS vec FROM lists);
-  SELECT * FROM vec LIMIT 2
+  CREATE OR REPLACE TABLE lists AS (SELECT * FROM (UNPIVOT (SELECT LIST(COLUMNS(* EXCLUDE('name'))) FROM transposed) ON *) WHERE list_any_value(value));
+    CREATE OR REPLACE TABLE embedding AS (SELECT name,value::Float[614] AS embed FROM lists);
+    
+  FROM embedding WHERE list_any_value(embed);
 #+end_src
 
 #+RESULTS:
-#+begin_results
-┌─────────┬────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│  name   │                                                                                  vec                                                                                   │
-│ varchar │                                                                               float[614]                                                                               │
-├─────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ CDK1    │ [-0.17407463, 0.09356303, -0.16698487, -0.47541437, -0.13420011, 0.27215907, -0.054577425, 0.099565856, 0.076311804, -0.044818204, 0.010731653, -0.13824134, 0.02189…  │
-│ CDK10   │ [0.015034323, 0.039933626, -0.017038388, 0.002151463, 0.03128465, -0.05201976, -0.04753162, 0.03311472, 0.15122187, 0.13490616, 0.07345616, 0.020085413, -0.00684847…  │
-└─────────┴────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-#+end_results
+#+begin_example
+┌──────────────┬────────────────────────────────────────────────────────────────────────┐
+│     name     │                                 embed                                  │
+│   varchar    │                               float[614]                               │
+├──────────────┼────────────────────────────────────────────────────────────────────────┤
+│ CDK1_crispr  │ [0.18358089, -0.2522718, 0.0563392, 0.11239874, -0.55951446, -0.1577…  │
+│ CDK1_orf     │ [-0.011782931, -0.05109205, -0.06853577, 0.025777964, -0.019996665, …  │
+│    ·         │                                   ·                                    │
+│    ·         │                                   ·                                    │
+│    ·         │                                   ·                                    │
+│ PPARGC1B_orf │ [0.034938738, 0.009827618, 0.024619712, -5.9584527e-05, -0.15596169,…  │
+├──────────────┴────────────────────────────────────────────────────────────────────────┤
+│ 42 rows (3 shown)                                                           2 columns │
+└───────────────────────────────────────────────────────────────────────────────────────┘
+#+end_example
 
-Based on [[https://motherduck.com/blog/search-using-duckdb-part-1/][this]] example of vector search, we calculate the cross JOIN
+Based on [[https://motherduck.com/blog/search-using-duckdb-part-1/][this]] example of embedtor search, we calculate the pairwise cosine similarity for this  =embed= column using =CROSS JOIN=
 #+begin_src duckdb
-  CREATE OR REPLACE TABLE cosim AS (SELECT x.name as gene_1,
+  CREATE OR REPLACE TABLE cosim AS (SELECT x.name as gene,
          y.name as gene_2,
-         array_cosine_similarity(x.vec, y.vec) AS similarity_metric
-  FROM vec AS x
-  CROSS JOIN vec AS y);
-  SELECT * FROM cosim LIMIT 5;
+         array_cosine_similarity(x.embed, y.embed) AS cosine
+  FROM embedding AS x
+  CROSS JOIN embedding AS y);
+  CREATE OR REPLACE TABLE cosine_matrix AS (PIVOT cosim ON gene_2 USING first(cosine) ORDER BY gene);
+  COPY (FROM cosine_matrix) TO '/tmp/cosim.csv' WITH (FORMAT CSV, HEADER);
+  FROM cosine_matrix;
 #+end_src
 
 #+RESULTS:
-#+begin_results
-┌─────────┬─────────┬───────────────────┐
-│ gene_1  │ gene_2  │ similarity_metric │
-│ varchar │ varchar │       float       │
-├─────────┼─────────┼───────────────────┤
-│ CDK1    │ CDK1    │               1.0 │
-│ CDK10   │ CDK1    │        0.14098114 │
-│ CDK11A  │ CDK1    │        0.21304414 │
-│ CDK11B  │ CDK1    │          0.271454 │
-│ CDK12   │ CDK1    │      -0.084055744 │
-└─────────┴─────────┴───────────────────┘
-#+end_results
+#+begin_example
+┌──────────────┬──────────────┬───┬──────────────┬──────────────┬─────────────┐
+│     gene     │ CDK10_crispr │ … │ PPARGC1B_orf │ PPARG_crispr │  PPARG_orf  │
+│   varchar    │    float     │   │    float     │    float     │    float    │
+├──────────────┼──────────────┼───┼──────────────┼──────────────┼─────────────┤
+│ CDK10_crispr │          1.0 │ … │     0.381478 │   0.19819091 │  -0.3229651 │
+│ CDK10_orf    │   0.31771797 │ … │   0.24440801 │  -0.13658871 │ -0.15816939 │
+│     ·        │        ·     │ · │        ·     │       ·      │          ·  │
+│     ·        │        ·     │ · │        ·     │       ·      │          ·  │
+│     ·        │        ·     │ · │        ·     │       ·      │          ·  │
+│ PPARG_orf    │   -0.3229651 │ … │ -0.050529543 │  0.041034658 │         1.0 │
+├──────────────┴──────────────┴───┴──────────────┴──────────────┴─────────────┤
+│ 42 rows (3 shown)                                      43 columns (5 shown) │
+└─────────────────────────────────────────────────────────────────────────────┘
+#+end_example
+
+** Plot data
+#+begin_src bash
+  duckdb -csv -c " SELECT * FROM read_csv('/tmp/cosim.csv');" |
+    gnuplot -persist -e "
+  set datafile separator ',';
+  plot '-' matrix rowheaders columnheaders using 1:2:3 with image;
+  "
+      # |
+    # set terminal dumb;
+    # set datafile separator ',';
+    # set style data histograms;
+    # set style fill solid 1.00 border -1;
+    # set xlabel 'Column 1';
+    # set ylabel 'CSum';
+    # set title 'Cumulative Sum of values';
+    # tr -d '\014' # Remove a pesky ^L at the top
+
+#+end_src
+
+#+RESULTS:
+#+begin_example
+#+end_example
+
+** Plot data (Python)
+#+begin_src bash :wrap result :result value
+  uv run -q  --with scipy --with polars --with seaborn -- python -c "import matplotlib.pyplot as plt; import polars as pl; import seaborn; a=pl.read_csv('/tmp/cosim.csv'); seaborn.clustermap(a.drop('gene'),cmap='vlag_r', center=0,row_colors=a.select(pl.when(pl.col.gene.str.ends_with('orf')).then(pl.lit((1.,0.5,0))).otherwise(pl.lit((0.5,0,0.5))))); plt.title('By orf'); plt.savefig('/tmp/clustermap.png')"
+#+end_src
+
+#+RESULTS:
+#+begin_result
+#+end_result
+
